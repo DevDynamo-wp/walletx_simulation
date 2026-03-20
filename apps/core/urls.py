@@ -2,6 +2,7 @@
 from django.urls import path
 from apps.core.views import (
     DepotView,
+    ResetSoldesTestView,
     RetraitView,
     SoldeUtilisateurView,
     SoldeNonviPayView,
@@ -19,6 +20,8 @@ urlpatterns = [
     # Consultation des soldes
     path('solde/',          SoldeUtilisateurView.as_view(), name='walletx-solde-user'),
     path('solde/nonvipay/', SoldeNonviPayView.as_view(),    name='walletx-solde-nonvipay'),
+    # Ajouter cette ligne dans urlpatterns
+path('reset-soldes/', ResetSoldesTestView.as_view(), name='walletx-reset-soldes'),
 
     # Outils de test
     path('recharger/',  RechargerView.as_view(),  name='walletx-recharger'),

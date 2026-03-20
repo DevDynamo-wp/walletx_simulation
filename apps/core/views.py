@@ -287,3 +287,66 @@ class ListeComptesView(ApiKeyMixin, APIView):
             'comptes_utilisateurs': data_users,
             'total_utilisateurs': len(data_users),
         })
+        
+        
+        
+        
+
+# ══════════════════════════════════════════════════════════════════
+# POST /walletx/api/reset-soldes/
+# Remet les soldes des comptes de test à leurs valeurs initiales
+# UNIQUEMENT en mode DEBUG — ne jamais exposer en production
+# ══════════════════════════════════════════════════════════════════
+
+class ResetSoldesTestView(ApiKeyMixin, APIView):
+    """
+    Remet les soldes des comptes prédéfinis à leurs valeurs initiales.
+    Utilisé par les tests NonviPay dans setUp() pour garantir
+    un état propre avant chaque test.
+
+    Comptes remis à zéro :
+      - CompteNonviPay : 0 FCFA
+    Comptes utilisateurs remis à 500 000 FCFA :
+      - +22997000001 (Alice / MTN)
+      - +22961000001 (Bob / Moov)
+      - +22990000001 (Charly / Orange)
+    """
+    def post(self, request):
+        if not settings.DEBUG:
+            return Response(
+                {'success': False, 'message': 'Non disponible en production.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        SOLDE_INITIAL_USER = Decimal('500000')
+        NUMEROS_TEST = ['+22997000001', '+22961000001', '+22990000001']
+
+        # Remettre NonviPay à 0
+        compte_nonvipay = CompteNonviPay.get_instance()
+        compte_nonvipay.solde = Decimal('0')
+        compte_nonvipay.save(update_fields=['solde', 'updated_at'])
+
+        # Remettre les comptes utilisateurs à 500 000
+        remis = []
+        for numero in NUMEROS_TEST:
+            try:
+                compte = CompteUtilisateur.objects.get(numero_telephone=numero)
+                compte.solde = SOLDE_INITIAL_USER
+                compte.save(update_fields=['solde', 'updated_at'])
+                remis.append({'numero': numero, 'nouveau_solde': str(SOLDE_INITIAL_USER)})
+            except CompteUtilisateur.DoesNotExist:
+                # Créer le compte s'il n'existe pas (après un reset BD partiel)
+                CompteUtilisateur.objects.create(
+                    numero_telephone=numero,
+                    nom_titulaire=f'Test {numero[-4:]}',
+                    solde=SOLDE_INITIAL_USER,
+                    est_actif=True,
+                )
+                remis.append({'numero': numero, 'nouveau_solde': str(SOLDE_INITIAL_USER), 'created': True})
+
+        return Response({
+            'success': True,
+            'message': 'Soldes remis à zéro.',
+            'nonvipay': {'solde': '0'},
+            'comptes_utilisateurs': remis,
+        })
