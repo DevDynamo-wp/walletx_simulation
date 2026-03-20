@@ -1,8 +1,8 @@
+# apps/core/views.py — WalletX
 """
-apps/core/views.py — Endpoints WalletX
+Endpoints WalletX — Simule une API d'opérateur Mobile Money.
 
-Imitent exactement l'API d'un opérateur Mobile Money réel.
-Sécurité : clé API dans le header X-API-Key sur chaque requête.
+Authentification : clé API dans le header X-API-Key.
 """
 import logging
 from decimal import Decimal, InvalidOperation
@@ -13,44 +13,35 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from rest_framework import status
 
-from apps.core.models import CompteVirtuel, TransactionVirtuelle
+from apps.core.models import CompteNonviPay, CompteUtilisateur, TransactionWalletX
 from apps.core.services import (
     initier_depot,
     initier_retrait,
-    consulter_solde,
-    crediter_compte,
-    get_ou_creer_compte,
+    consulter_solde_utilisateur,
+    consulter_solde_nonvipay,
+    crediter_compte_utilisateur,
+    get_ou_creer_compte_utilisateur,
 )
 
 logger = logging.getLogger(__name__)
 
 
-# ── Vérification clé API ───────────────────────────────────────
-
 class ApiKeyMixin:
-    """Vérifie X-API-Key sur chaque requête avant de traiter."""
+    """Vérifie X-API-Key sur chaque requête."""
     permission_classes = [AllowAny]
 
     def dispatch(self, request, *args, **kwargs):
-        cle_recue = request.headers.get('X-API-Key', '')
+        cle_recue   = request.headers.get('X-API-Key', '')
         cle_attendue = getattr(settings, 'WALLETX_API_KEY', 'walletx-dev-key-2026')
         if cle_recue != cle_attendue:
             return Response(
-                {
-                    'success': False,
-                    'message': 'Clé API invalide ou manquante.',
-                    'code': 'INVALID_API_KEY',
-                },
+                {'success': False, 'message': 'Clé API invalide.', 'code': 'INVALID_API_KEY'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
         return super().dispatch(request, *args, **kwargs)
 
 
-def _valider_montant(valeur) -> tuple:
-    """
-    Valide et convertit un montant.
-    Retourne (montant, None) ou (None, message_erreur).
-    """
+def _valider_montant(valeur):
     try:
         montant = Decimal(str(valeur))
         if montant <= 0:
@@ -60,47 +51,30 @@ def _valider_montant(valeur) -> tuple:
         return None, 'Montant invalide. Doit être un nombre positif.'
 
 
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 # POST /walletx/api/depot/
-# NonviPay demande un dépôt : débite le compte virtuel
-# ══════════════════════════════════════════════════════════════
+# NonviPay demande un dépôt : User WalletX → NonviPay WalletX
+# ══════════════════════════════════════════════════════════════════════════════
 
 class DepotView(ApiKeyMixin, APIView):
     """
-    POST /walletx/api/depot/
-
-    Body :
-    {
-        "numero_telephone": "+22961000000",
-        "montant": "5000",
-        "reference_externe": "DEP-20260319-ABCD1234",
-        "webhook_url": "http://localhost:8000/api/v1/mobilemoney/webhook/",
-        "description": "Dépôt NonviPay"   ← optionnel
-    }
+    Reçoit une demande de dépôt de NonviPay.
+    Débite CompteUtilisateur et crédite CompteNonviPay.
+    Envoie un webhook SUCCESS si tout va bien.
     """
-
     def post(self, request):
         data = request.data
-
-        # Validation champs requis
         requis = ['numero_telephone', 'montant', 'reference_externe', 'webhook_url']
         manquants = [f for f in requis if not data.get(f)]
         if manquants:
             return Response(
-                {
-                    'success': False,
-                    'message': f'Champs manquants : {", ".join(manquants)}',
-                    'code': 'MISSING_FIELDS',
-                },
+                {'success': False, 'message': f'Champs manquants : {", ".join(manquants)}', 'code': 'MISSING_FIELDS'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         montant, erreur = _valider_montant(data.get('montant'))
         if erreur:
-            return Response(
-                {'success': False, 'message': erreur, 'code': 'INVALID_AMOUNT'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'success': False, 'message': erreur, 'code': 'INVALID_AMOUNT'}, status=status.HTTP_400_BAD_REQUEST)
 
         resultat = initier_depot(
             numero=data['numero_telephone'],
@@ -113,56 +87,35 @@ class DepotView(ApiKeyMixin, APIView):
         if resultat.get('statut') == 'SUCCESS':
             return Response({'success': True, **resultat}, status=status.HTTP_200_OK)
 
-        # Mapper les codes d'erreur en HTTP
         code = resultat.get('code', '')
-        http_status = (
-            status.HTTP_400_BAD_REQUEST
-            if code in ('INSUFFICIENT_FUNDS', 'INVALID_AMOUNT', 'ACCOUNT_DISABLED')
-            else status.HTTP_422_UNPROCESSABLE_ENTITY
-        )
+        http_status = status.HTTP_400_BAD_REQUEST if code in ('INSUFFICIENT_FUNDS', 'INVALID_AMOUNT', 'ACCOUNT_DISABLED') else status.HTTP_422_UNPROCESSABLE_ENTITY
         return Response({'success': False, **resultat}, status=http_status)
 
 
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 # POST /walletx/api/retrait/
-# NonviPay demande un retrait : crédite le compte virtuel
-# ══════════════════════════════════════════════════════════════
+# NonviPay demande un retrait : NonviPay WalletX → User WalletX
+# ══════════════════════════════════════════════════════════════════════════════
 
 class RetraitView(ApiKeyMixin, APIView):
     """
-    POST /walletx/api/retrait/
-
-    Body :
-    {
-        "numero_telephone": "+22961000000",
-        "montant": "3000",
-        "reference_externe": "RET-20260319-XYZ9876",
-        "webhook_url": "http://localhost:8000/api/v1/mobilemoney/webhook/",
-        "description": "Retrait NonviPay"  ← optionnel
-    }
+    Reçoit une demande de retrait de NonviPay.
+    Débite CompteNonviPay et crédite CompteUtilisateur.
+    Envoie un webhook SUCCESS si tout va bien.
     """
-
     def post(self, request):
         data = request.data
-
         requis = ['numero_telephone', 'montant', 'reference_externe', 'webhook_url']
         manquants = [f for f in requis if not data.get(f)]
         if manquants:
             return Response(
-                {
-                    'success': False,
-                    'message': f'Champs manquants : {", ".join(manquants)}',
-                    'code': 'MISSING_FIELDS',
-                },
+                {'success': False, 'message': f'Champs manquants : {", ".join(manquants)}', 'code': 'MISSING_FIELDS'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         montant, erreur = _valider_montant(data.get('montant'))
         if erreur:
-            return Response(
-                {'success': False, 'message': erreur, 'code': 'INVALID_AMOUNT'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'success': False, 'message': erreur, 'code': 'INVALID_AMOUNT'}, status=status.HTTP_400_BAD_REQUEST)
 
         resultat = initier_retrait(
             numero=data['numero_telephone'],
@@ -175,84 +128,73 @@ class RetraitView(ApiKeyMixin, APIView):
         if resultat.get('statut') == 'SUCCESS':
             return Response({'success': True, **resultat}, status=status.HTTP_200_OK)
 
-        return Response(
-            {'success': False, **resultat},
-            status=status.HTTP_422_UNPROCESSABLE_ENTITY
-        )
+        return Response({'success': False, **resultat}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
 
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 # GET /walletx/api/solde/?numero=...
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 
-class SoldeView(ApiKeyMixin, APIView):
-    """Consulte le solde d'un compte virtuel."""
-
+class SoldeUtilisateurView(ApiKeyMixin, APIView):
+    """Consulte le solde d'un compte utilisateur."""
     def get(self, request):
         numero = request.query_params.get('numero', '').strip()
         if not numero:
-            return Response(
-                {'success': False, 'message': 'Paramètre `numero` requis.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        resultat = consulter_solde(numero)
-        return Response({'success': True, **resultat})
+            return Response({'success': False, 'message': 'Paramètre `numero` requis.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'success': True, **consulter_solde_utilisateur(numero)})
 
 
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# GET /walletx/api/solde/nonvipay/
+# Solde du compte NonviPay chez WalletX (= GATEWAY_EXTERNAL de NonviPay)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class SoldeNonviPayView(ApiKeyMixin, APIView):
+    """
+    Retourne le solde du compte NonviPay.
+    Ce solde doit correspondre à GATEWAY_EXTERNAL.available_balanced dans NonviPay.
+    """
+    def get(self, request):
+        return Response({'success': True, **consulter_solde_nonvipay()})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # POST /walletx/api/recharger/
-# Recharge manuelle d'un compte virtuel (tests / admin)
-# ══════════════════════════════════════════════════════════════
+# Recharge manuelle d'un compte utilisateur (tests)
+# ══════════════════════════════════════════════════════════════════════════════
 
 class RechargerView(ApiKeyMixin, APIView):
-    """Crédite directement un compte virtuel pour les tests."""
-
+    """Recharge un compte utilisateur pour les tests."""
     def post(self, request):
         numero = request.data.get('numero_telephone', '').strip()
         if not numero:
-            return Response(
-                {'success': False, 'message': 'numero_telephone requis.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'success': False, 'message': 'numero_telephone requis.'}, status=status.HTTP_400_BAD_REQUEST)
 
         montant, erreur = _valider_montant(request.data.get('montant'))
         if erreur:
-            return Response(
-                {'success': False, 'message': erreur, 'code': 'INVALID_AMOUNT'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'success': False, 'message': erreur}, status=status.HTTP_400_BAD_REQUEST)
 
-        resultat = crediter_compte(numero, montant)
-        return Response({'success': True, **resultat})
+        return Response({'success': True, **crediter_compte_utilisateur(numero, montant)})
 
 
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 # GET /walletx/api/historique/?numero=...
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 
 class HistoriqueView(ApiKeyMixin, APIView):
-    """Retourne les 50 dernières transactions d'un compte."""
-
+    """Retourne les 50 dernières transactions d'un compte utilisateur."""
     def get(self, request):
         numero = request.query_params.get('numero', '').strip()
         if not numero:
-            return Response(
-                {'success': False, 'message': 'Paramètre `numero` requis.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'success': False, 'message': '`numero` requis.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            compte = CompteVirtuel.objects.get(numero_telephone=numero)
-        except CompteVirtuel.DoesNotExist:
-            return Response({
-                'success': True,
-                'solde_actuel': '0',
-                'transactions': [],
-                'total': 0,
-            })
+            compte = CompteUtilisateur.objects.get(numero_telephone=numero)
+        except CompteUtilisateur.DoesNotExist:
+            return Response({'success': True, 'transactions': [], 'total': 0, 'solde_actuel': '0'})
 
-        transactions = TransactionVirtuelle.objects.filter(
-            compte=compte
+        transactions = TransactionWalletX.objects.filter(
+            compte_utilisateur=compte
         ).order_by('-created_at')[:50]
 
         data = [
@@ -262,10 +204,10 @@ class HistoriqueView(ApiKeyMixin, APIView):
                 'reference_externe': tx.reference_externe,
                 'sens': tx.sens,
                 'montant': str(tx.montant),
-                'solde_avant': str(tx.solde_avant),
-                'solde_apres': str(tx.solde_apres),
+                'solde_user_avant': str(tx.solde_user_avant),
+                'solde_user_apres': str(tx.solde_user_apres),
+                'solde_nonvipay_apres': str(tx.solde_nonvipay_apres),
                 'statut': tx.statut,
-                'description': tx.description,
                 'webhook_envoye': tx.webhook_envoye,
                 'date': tx.created_at.isoformat(),
             }
@@ -281,52 +223,48 @@ class HistoriqueView(ApiKeyMixin, APIView):
         })
 
 
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 # GET /walletx/api/transaction/<reference_externe>/
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 
 class StatutTransactionView(ApiKeyMixin, APIView):
-    """Retourne le statut d'une transaction par sa référence externe."""
-
     def get(self, request, reference_externe):
         try:
-            tx = TransactionVirtuelle.objects.select_related('compte').get(
+            tx = TransactionWalletX.objects.select_related('compte_utilisateur').get(
                 reference_externe=reference_externe
             )
-        except TransactionVirtuelle.DoesNotExist:
+        except TransactionWalletX.DoesNotExist:
             return Response(
-                {
-                    'success': False,
-                    'message': 'Transaction introuvable.',
-                    'code': 'NOT_FOUND',
-                },
+                {'success': False, 'message': 'Transaction introuvable.', 'code': 'NOT_FOUND'},
                 status=status.HTTP_404_NOT_FOUND
             )
-
         return Response({
             'success': True,
             'reference_externe': tx.reference_externe,
             'reference_walletx': tx.reference_walletx,
-            'numero': tx.compte.numero_telephone,
+            'numero': tx.compte_utilisateur.numero_telephone,
             'sens': tx.sens,
             'montant': str(tx.montant),
             'statut': tx.statut,
             'webhook_envoye': tx.webhook_envoye,
+            'solde_nonvipay_apres': str(tx.solde_nonvipay_apres),
             'date': tx.created_at.isoformat(),
         })
 
 
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 # GET /walletx/api/comptes/
-# Liste tous les comptes virtuels (debug/admin)
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 
 class ListeComptesView(ApiKeyMixin, APIView):
-    """Liste tous les comptes virtuels existants."""
-
+    """Liste tous les comptes (NonviPay + utilisateurs)."""
     def get(self, request):
-        comptes = CompteVirtuel.objects.all().order_by('-created_at')
-        data = [
+        # Compte NonviPay
+        nonvipay = CompteNonviPay.get_instance()
+
+        # Comptes utilisateurs
+        comptes_users = CompteUtilisateur.objects.all().order_by('-created_at')
+        data_users = [
             {
                 'id': str(c.id),
                 'numero': c.numero_telephone,
@@ -334,8 +272,18 @@ class ListeComptesView(ApiKeyMixin, APIView):
                 'solde': str(c.solde),
                 'est_actif': c.est_actif,
                 'nb_transactions': c.transactions.count(),
-                'created_at': c.created_at.isoformat(),
             }
-            for c in comptes
+            for c in comptes_users
         ]
-        return Response({'success': True, 'comptes': data, 'total': len(data)})
+
+        return Response({
+            'success': True,
+            'compte_nonvipay': {
+                'id': str(nonvipay.id),
+                'nom': nonvipay.nom,
+                'solde': str(nonvipay.solde),
+                'info': 'Ce solde = GATEWAY_EXTERNAL dans NonviPay',
+            },
+            'comptes_utilisateurs': data_users,
+            'total_utilisateurs': len(data_users),
+        })
