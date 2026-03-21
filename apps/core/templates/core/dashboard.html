@@ -1,0 +1,523 @@
+{# apps/core/templates/core/dashboard.html #}
+{# Données injectées par DashboardView via context : #}
+{#   stats_json, comptes_mtn_json, comptes_moov_json, journal_json #}
+{% load walletx_filters %}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WalletX — Tableau de bord</title>
+{% load static %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --mtn:        #FFCC00;
+    --mtn-dark:   #B38C00;
+    --mtn-light:  #FFF8CC;
+    --moov:       #0055A5;
+    --moov-dark:  #003778;
+    --moov-light: #E6EEF9;
+    --bg:         #F4F3EF;
+    --surface:    #FFFFFF;
+    --text:       #1A1A18;
+    --muted:      #6B6B66;
+    --border:     #E2E0D8;
+    --green:      #2E7D4F;
+    --green-bg:   #E8F5EE;
+    --red:        #C0392B;
+    --red-bg:     #FDECEA;
+    --radius:     10px;
+    --mono:       'IBM Plex Mono', monospace;
+    --sans:       'Syne', sans-serif;
+  }
+
+  body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── Topbar ── */
+  .topbar {
+    background: var(--text); color: #fff; padding: 14px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .topbar-brand { display: flex; align-items: center; gap: 10px; }
+  .topbar-logo {
+    width: 32px; height: 32px; background: var(--mtn); border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; color: var(--text);
+  }
+  .topbar-title { font-size: 16px; font-weight: 600; }
+  .topbar-sub { font-size: 11px; color: #999; font-family: var(--mono); margin-top: 1px; }
+  .topbar-right { display: flex; align-items: center; gap: 14px; }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #4CAF50;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.3)} }
+  .live-label { font-size: 11px; color: #aaa; font-family: var(--mono); }
+  .server-badge {
+    font-size: 11px; font-family: var(--mono); color: #888;
+    background: #2a2a28; padding: 4px 10px; border-radius: 5px;
+  }
+  .btn-topbar {
+    background: none; border: 1px solid #444; color: #ccc;
+    padding: 6px 14px; border-radius: 6px; font-family: var(--sans);
+    font-size: 12px; cursor: pointer; transition: all .2s;
+  }
+  .btn-topbar:hover { border-color: var(--mtn); color: var(--mtn); }
+
+  /* ── Layout ── */
+  .main { padding: 24px 28px; max-width: 1200px; margin: 0 auto; }
+  .section-label {
+    font-size: 11px; font-weight: 600; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
+  }
+
+  /* ── Résumé global ── */
+  .summary-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 28px; }
+  .summary-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 18px;
+  }
+  .summary-card .label { font-size: 11px; color: var(--muted); font-family: var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+  .summary-card .value { font-size: 22px; font-weight: 700; margin-top: 6px; font-family: var(--mono); color: var(--text); transition: color .3s; }
+  .summary-card .sub   { font-size: 11px; margin-top: 4px; font-family: var(--mono); color: var(--muted); }
+
+  /* ── Opérateurs ── */
+  .operators-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 28px; }
+  .op-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .op-header { padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; }
+  .op-header.mtn  { background: var(--mtn-light); border-bottom: 2px solid var(--mtn); }
+  .op-header.moov { background: var(--moov-light); border-bottom: 2px solid var(--moov); }
+  .op-badge { display: flex; align-items: center; gap: 10px; }
+  .op-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .op-dot.mtn  { background: var(--mtn-dark); }
+  .op-dot.moov { background: var(--moov); }
+  .op-name { font-size: 15px; font-weight: 600; }
+  .op-code { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+
+  .gateway-block {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .gateway-label { font-size: 12px; color: var(--muted); }
+  .gateway-label span { display: block; font-size: 10px; font-family: var(--mono); color: #aaa; margin-top: 2px; }
+  .gateway-solde {
+    font-size: 20px; font-weight: 700; font-family: var(--mono); color: var(--text);
+    transition: color .4s, transform .2s;
+  }
+  .gateway-solde.flash      { color: var(--green); transform: scale(1.04); }
+  .gateway-solde.flash-down { color: var(--red);   transform: scale(1.04); }
+
+  /* ── Table comptes ── */
+  .accounts-table { width: 100%; border-collapse: collapse; }
+  .accounts-table thead th {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--muted); padding: 10px 20px; text-align: left;
+    border-bottom: 1px solid var(--border); font-family: var(--mono);
+  }
+  .accounts-table tbody tr { border-bottom: 1px solid #F5F4F0; transition: background .15s; }
+  .accounts-table tbody tr:last-child { border-bottom: none; }
+  .accounts-table tbody tr:hover { background: #FAFAF8; }
+  .accounts-table td { padding: 10px 20px; font-size: 13px; vertical-align: middle; }
+  .td-num  { font-family: var(--mono); color: var(--muted); font-size: 12px; }
+  .td-nom  { font-weight: 600; }
+  .td-solde { font-family: var(--mono); font-weight: 600; text-align: right; }
+  .td-solde.low  { color: var(--red); }
+  .td-solde.high { color: var(--green); }
+  .td-bar { padding: 0 20px 0 0; width: 80px; }
+  .bar-track { height: 4px; background: #EEE; border-radius: 2px; overflow: hidden; width: 80px; }
+  .bar-fill  { height: 100%; border-radius: 2px; transition: width .6s ease; }
+  .bar-fill.mtn  { background: var(--mtn-dark); }
+  .bar-fill.moov { background: var(--moov); }
+  .pill {
+    display: inline-block; font-size: 10px; font-family: var(--mono);
+    padding: 2px 8px; border-radius: 4px; font-weight: 500;
+  }
+  .pill.actif   { background: var(--green-bg); color: var(--green); }
+  .pill.inactif { background: var(--red-bg);   color: var(--red); }
+
+  /* ── Journal ── */
+  .journal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .journal-list {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden; margin-bottom: 28px;
+  }
+  .journal-item {
+    display: grid; grid-template-columns: 36px 1fr auto;
+    gap: 12px; align-items: center;
+    padding: 12px 20px; border-bottom: 1px solid #F5F4F0;
+    animation: slideIn .25s ease;
+  }
+  .journal-item:last-child { border-bottom: none; }
+  @keyframes slideIn { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+  .ji-icon {
+    width: 36px; height: 36px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700; flex-shrink: 0;
+  }
+  .ji-icon.depot   { background: var(--green-bg); color: var(--green); }
+  .ji-icon.retrait { background: var(--red-bg);   color: var(--red); }
+  .ji-body .desc { font-size: 13px; font-weight: 600; }
+  .ji-body .ref  { font-size: 11px; font-family: var(--mono); color: var(--muted); margin-top: 2px; }
+  .op-tag {
+    font-size: 10px; font-family: var(--mono); padding: 1px 6px;
+    border-radius: 3px; font-weight: 500; margin-left: 6px;
+  }
+  .op-tag.mtn  { background: var(--mtn-light); color: var(--mtn-dark); }
+  .op-tag.moov { background: var(--moov-light); color: var(--moov); }
+  .ji-amount .montant { font-family: var(--mono); font-weight: 700; font-size: 14px; text-align: right; }
+  .ji-amount .montant.depot   { color: var(--green); }
+  .ji-amount .montant.retrait { color: var(--red); }
+  .ji-amount .time { font-size: 10px; font-family: var(--mono); color: var(--muted); text-align: right; margin-top: 2px; }
+
+  .empty-state { padding: 32px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  /* ── Formulaire simulation ── */
+  .sim-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px; }
+  .sim-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+  }
+  .sim-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+  .form-row { margin-bottom: 12px; }
+  .form-row label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); display: block; margin-bottom: 5px; font-family: var(--mono);
+  }
+  .form-row select, .form-row input {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 7px; font-family: var(--mono); font-size: 13px;
+    background: #FAFAF8; color: var(--text); outline: none; transition: border-color .2s;
+  }
+  .form-row select:focus, .form-row input:focus { border-color: var(--text); }
+  .btn-action {
+    width: 100%; padding: 11px; border: none; border-radius: 7px;
+    font-family: var(--sans); font-weight: 600; font-size: 14px;
+    cursor: pointer; transition: all .2s; margin-top: 4px;
+  }
+  .btn-action.depot   { background: var(--green); color: #fff; }
+  .btn-action.depot:hover   { background: #236040; }
+  .btn-action.retrait { background: var(--red);   color: #fff; }
+  .btn-action.retrait:hover { background: #9B2D22; }
+  .btn-action:active { transform: scale(.98); }
+
+  /* ── Polling indicator ── */
+  .refresh-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 3px; background: transparent; z-index: 200;
+  }
+  .refresh-bar-fill {
+    height: 100%; background: var(--mtn); width: 0%;
+    transition: width linear; border-radius: 0 2px 2px 0;
+  }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    padding: 12px 20px; border-radius: 8px;
+    font-size: 13px; font-family: var(--mono); font-weight: 500;
+    z-index: 9999; animation: toastIn .3s ease; max-width: 360px;
+  }
+  .toast.success { background: var(--green); color: #fff; }
+  .toast.error   { background: var(--red);   color: #fff; }
+  .toast.info    { background: var(--text);  color: #fff; }
+  @keyframes toastIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center; padding: 20px; font-size: 11px;
+    color: var(--muted); font-family: var(--mono);
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 900px) {
+    .summary-grid { grid-template-columns: 1fr 1fr; }
+    .operators-grid, .sim-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 600px) {
+    .main { padding: 16px; }
+    .topbar { padding: 12px 16px; }
+    .summary-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Topbar ─────────────────────────────────────────────────────────────── -->
+<header class="topbar">
+  <div class="topbar-brand">
+    <div class="topbar-logo">WX</div>
+    <div>
+      <div class="topbar-title">WalletX</div>
+      <div class="topbar-sub">Simulateur Mobile Money — Bénin</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="live-dot"></div>
+    <span class="live-label">Sync 5s</span>
+    <span class="server-badge">Django {{ django_version|default:"6.0" }} · PostgreSQL</span>
+    <button class="btn-topbar" onclick="resetSoldes()">↺ Reset</button>
+  </div>
+</header>
+
+<!-- ── Barre de progression polling ──────────────────────────────────────── -->
+<div class="refresh-bar"><div class="refresh-bar-fill" id="refresh-bar"></div></div>
+
+<main class="main">
+
+  <!-- ═══ RÉSUMÉ GLOBAL ═══════════════════════════════════════════════════ -->
+  <div class="section-label">Vue d'ensemble — données temps réel</div>
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="label">Total NonviPay (tous opérateurs)</div>
+      <div class="value" id="total-np">{{ stats.total_nonvipay|floatformat:0 }} FCFA</div>
+      <div class="sub">GATEWAY_MTN + GATEWAY_MOOV</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Solde NonviPay MTN</div>
+      <div class="value" id="solde-mtn">{{ stats.solde_mtn|floatformat:0 }} FCFA</div>
+      <div class="sub">{{ stats.nb_users_mtn }} compte{{ stats.nb_users_mtn|pluralize }} utilisateur{{ stats.nb_users_mtn|pluralize }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Solde NonviPay Moov</div>
+      <div class="value" id="solde-moov">{{ stats.solde_moov|floatformat:0 }} FCFA</div>
+      <div class="sub">{{ stats.nb_users_moov }} compte{{ stats.nb_users_moov|pluralize }} utilisateur{{ stats.nb_users_moov|pluralize }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Transactions aujourd'hui</div>
+      <div class="value" id="tx-jour">{{ stats.nb_aujourd_hui }}</div>
+      <div class="sub">{{ stats.nb_transactions }} au total</div>
+    </div>
+  </div>
+
+  <!-- ═══ OPÉRATEURS ══════════════════════════════════════════════════════ -->
+  <div class="section-label">Comptes par opérateur</div>
+  <div class="operators-grid">
+
+    <!-- MTN -->
+    <div class="op-card">
+      <div class="op-header mtn">
+        <div class="op-badge">
+          <div class="op-dot mtn"></div>
+          <div>
+            <div class="op-name">MTN Bénin</div>
+            <div class="op-code">MTN_BEN</div>
+          </div>
+        </div>
+        <div style="font-size:10px;font-family:var(--mono);color:var(--muted);">
+          {{ stats.nb_users_mtn }} compte{{ stats.nb_users_mtn|pluralize }}
+        </div>
+      </div>
+      <div class="gateway-block">
+        <div class="gateway-label">
+          Compte NonviPay chez MTN
+          <span>= GATEWAY_MTN dans le ledger</span>
+        </div>
+        <div class="gateway-solde" id="gw-mtn">{{ stats.solde_mtn|floatformat:0 }} FCFA</div>
+      </div>
+      <table class="accounts-table" id="table-mtn">
+        <thead>
+          <tr>
+            <th>Titulaire</th>
+            <th>Numéro</th>
+            <th style="text-align:right">Solde</th>
+            <th></th>
+            <th>Statut</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-mtn">
+          {% for c in comptes_mtn %}
+          <tr>
+            <td class="td-nom">{{ c.nom }}</td>
+            <td class="td-num">{{ c.numero }}</td>
+            <td class="td-solde {% if c.solde < 50000 %}low{% elif c.solde >= 400000 %}high{% endif %}">
+              {{ c.solde|floatformat:0 }} FCFA
+            </td>
+            <td class="td-bar">
+              <div class="bar-track">
+                <div class="bar-fill mtn" style="width:{{ c.solde|div_by_max:comptes_mtn }}%"></div>
+              </div>
+            </td>
+            <td><span class="pill {% if c.est_actif %}actif{% else %}inactif{% endif %}">{% if c.est_actif %}actif{% else %}inactif{% endif %}</span></td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="empty-state">Aucun compte MTN trouvé.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Moov -->
+    <div class="op-card">
+      <div class="op-header moov">
+        <div class="op-badge">
+          <div class="op-dot moov"></div>
+          <div>
+            <div class="op-name">Moov Bénin</div>
+            <div class="op-code">MOOV_BEN</div>
+          </div>
+        </div>
+        <div style="font-size:10px;font-family:var(--mono);color:var(--muted);">
+          {{ stats.nb_users_moov }} compte{{ stats.nb_users_moov|pluralize }}
+        </div>
+      </div>
+      <div class="gateway-block">
+        <div class="gateway-label">
+          Compte NonviPay chez Moov
+          <span>= GATEWAY_MOOV dans le ledger</span>
+        </div>
+        <div class="gateway-solde" id="gw-moov">{{ stats.solde_moov|floatformat:0 }} FCFA</div>
+      </div>
+      <table class="accounts-table" id="table-moov">
+        <thead>
+          <tr>
+            <th>Titulaire</th>
+            <th>Numéro</th>
+            <th style="text-align:right">Solde</th>
+            <th></th>
+            <th>Statut</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-moov">
+          {% for c in comptes_moov %}
+          <tr>
+            <td class="td-nom">{{ c.nom }}</td>
+            <td class="td-num">{{ c.numero }}</td>
+            <td class="td-solde {% if c.solde < 50000 %}low{% elif c.solde >= 400000 %}high{% endif %}">
+              {{ c.solde|floatformat:0 }} FCFA
+            </td>
+            <td class="td-bar">
+              <div class="bar-track">
+                <div class="bar-fill moov" style="width:{{ c.solde|div_by_max:comptes_moov }}%"></div>
+              </div>
+            </td>
+            <td><span class="pill {% if c.est_actif %}actif{% else %}inactif{% endif %}">{% if c.est_actif %}actif{% else %}inactif{% endif %}</span></td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="empty-state">Aucun compte Moov trouvé.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- ═══ FORMULAIRE DE SIMULATION ════════════════════════════════════════ -->
+  <div class="section-label">Simuler une transaction via l'API</div>
+  <div class="sim-grid">
+
+    <!-- Dépôt -->
+    <div class="sim-card">
+      <h3>↓ Dépôt</h3>
+      <div class="form-row">
+        <label>Opérateur</label>
+        <select id="dep-op" onchange="majComptesDepot()">
+          <option value="MTN_BEN">MTN Bénin</option>
+          <option value="MOOV_BEN">Moov Bénin</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Numéro de téléphone</label>
+        <select id="dep-numero"></select>
+      </div>
+      <div class="form-row">
+        <label>Montant (FCFA)</label>
+        <input type="number" id="dep-montant" value="10000" min="100" step="500">
+      </div>
+      <button class="btn-action depot" onclick="simulerDepot()">Confirmer le dépôt</button>
+    </div>
+
+    <!-- Retrait -->
+    <div class="sim-card">
+      <h3>↑ Retrait</h3>
+      <div class="form-row">
+        <label>Opérateur</label>
+        <select id="ret-op" onchange="majComptesRetrait()">
+          <option value="MTN_BEN">MTN Bénin</option>
+          <option value="MOOV_BEN">Moov Bénin</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Numéro de téléphone</label>
+        <select id="ret-numero"></select>
+      </div>
+      <div class="form-row">
+        <label>Montant net (FCFA)</label>
+        <input type="number" id="ret-montant" value="5000" min="500" step="500">
+      </div>
+      <div class="form-row">
+        <label>Frais (FCFA)</label>
+        <input type="number" id="ret-frais" value="500" min="0" step="100">
+      </div>
+      <button class="btn-action retrait" onclick="simulerRetrait()">Confirmer le retrait</button>
+    </div>
+  </div>
+
+  <!-- ═══ JOURNAL ══════════════════════════════════════════════════════════ -->
+  <div class="journal-header">
+    <div class="section-label" style="margin-bottom:0">Journal des transactions</div>
+  </div>
+  <div class="journal-list" id="journal">
+    {% if journal %}
+      {% for tx in journal %}
+      <div class="journal-item">
+        <div class="ji-icon {% if tx.sens == 'DEPOT' %}depot{% else %}retrait{% endif %}">
+          {% if tx.sens == 'DEPOT' %}↓{% else %}↑{% endif %}
+        </div>
+        <div class="ji-body">
+          <div class="desc">
+            {{ tx.nom }}
+            <span class="op-tag {% if tx.operateur == 'MTN_BEN' %}mtn{% else %}moov{% endif %}">
+              {% if tx.operateur == 'MTN_BEN' %}MTN{% else %}MOOV{% endif %}
+            </span>
+          </div>
+          <div class="ref">{{ tx.reference_walletx }} · {{ tx.heure }}</div>
+        </div>
+        <div class="ji-amount">
+          <div class="montant {% if tx.sens == 'DEPOT' %}depot{% else %}retrait{% endif %}">
+            {% if tx.sens == 'DEPOT' %}+{% else %}−{% endif %}{{ tx.montant|floatformat:0 }} FCFA
+          </div>
+          <div class="time">NP: {{ tx.solde_np_apres|floatformat:0 }} FCFA</div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state">Aucune transaction — utilisez le formulaire ci-dessus.</div>
+    {% endif %}
+  </div>
+
+</main>
+
+<footer class="footer">
+  WalletX Simulateur · NonviPay MVP+ · Django + PostgreSQL ·
+  Données rechargées toutes les 5 secondes
+</footer>
+
+<!-- ─────────────────────────────────────────────────────────────────────── -->
+<!-- DONNÉES INITIALES injectées par Django (pas de fetch() au démarrage)   -->
+<!-- ─────────────────────────────────────────────────────────────────────── -->
+<script>
+  // Ces variables sont peuplées par le serveur au moment du rendu HTML.
+  // Le JS n'a pas besoin de faire un fetch() initial — les données sont déjà là.
+  const DONNEES_INITIALES = {
+    stats:       {{ stats_json|safe }},
+    comptesMtn:  {{ comptes_mtn_json|safe }},
+    comptesMoov: {{ comptes_moov_json|safe }},
+    journal:     {{ journal_json|safe }},
+  };
+
+  // URL de l'endpoint polling (défini côté Django)
+  const URL_DATA    = "{% url 'walletx-dashboard-data' %}";
+  const URL_DEPOT   = "{% url 'walletx-mtn-depot' %}".replace('/mtn/', '/{op}/');
+  const URL_RETRAIT = "{% url 'walletx-mtn-retrait' %}".replace('/mtn/', '/{op}/');
+  const URL_RESET   = "{% url 'walletx-reset-soldes' %}";
+  const API_KEY     = "walletx-dev-key-2026";  // En prod : injecter depuis settings
+</script>
+<script src="{% static 'core/js/dashboard.js' %}"></script>
+
+</body>
+</html>
