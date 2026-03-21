@@ -4,6 +4,19 @@
     "pk": "aaaaaaaa-0000-0000-0000-000000000001",
     "fields": {
       "nom": "NonviPay",
+      "operateur": "MTN_BEN",
+      "solde": "0.00",
+      "est_actif": true,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "core.comptenonvipay",
+    "pk": "aaaaaaaa-0000-0000-0000-000000000002",
+    "fields": {
+      "nom": "NonviPay",
+      "operateur": "MOOV_BEN",
       "solde": "0.00",
       "est_actif": true,
       "created_at": "2026-01-01T00:00:00Z",
@@ -12,10 +25,11 @@
   },
   {
     "model": "core.compteutilisateur",
-    "pk": "bbbbbbbb-0000-0000-0000-000000000001",
+    "pk": "bbbbbbbb-0000-0000-0001-000000000001",
     "fields": {
       "numero_telephone": "+22997000001",
-      "nom_titulaire": "Alice Koffi (Test MTN)",
+      "nom_titulaire": "Alice Koffi (MTN)",
+      "operateur": "MTN_BEN",
       "solde": "500000.00",
       "est_actif": true,
       "created_at": "2026-01-01T00:00:00Z",
@@ -24,10 +38,37 @@
   },
   {
     "model": "core.compteutilisateur",
-    "pk": "bbbbbbbb-0000-0000-0000-000000000002",
+    "pk": "bbbbbbbb-0000-0000-0001-000000000002",
+    "fields": {
+      "numero_telephone": "+22997000002",
+      "nom_titulaire": "Kofi Mensah (MTN)",
+      "operateur": "MTN_BEN",
+      "solde": "500000.00",
+      "est_actif": true,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "core.compteutilisateur",
+    "pk": "bbbbbbbb-0000-0000-0001-000000000003",
+    "fields": {
+      "numero_telephone": "+22997000003",
+      "nom_titulaire": "Ama Sossa (MTN)",
+      "operateur": "MTN_BEN",
+      "solde": "500000.00",
+      "est_actif": true,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "core.compteutilisateur",
+    "pk": "bbbbbbbb-0000-0000-0002-000000000001",
     "fields": {
       "numero_telephone": "+22961000001",
-      "nom_titulaire": "Bob Mensah (Test Moov)",
+      "nom_titulaire": "Bob Alabi (Moov)",
+      "operateur": "MOOV_BEN",
       "solde": "500000.00",
       "est_actif": true,
       "created_at": "2026-01-01T00:00:00Z",
@@ -36,10 +77,24 @@
   },
   {
     "model": "core.compteutilisateur",
-    "pk": "bbbbbbbb-0000-0000-0000-000000000003",
+    "pk": "bbbbbbbb-0000-0000-0002-000000000002",
     "fields": {
-      "numero_telephone": "+22990000001",
-      "nom_titulaire": "Charly Dossou (Test Orange)",
+      "numero_telephone": "+22961000002",
+      "nom_titulaire": "Cécile Dossou (Moov)",
+      "operateur": "MOOV_BEN",
+      "solde": "500000.00",
+      "est_actif": true,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "core.compteutilisateur",
+    "pk": "bbbbbbbb-0000-0000-0002-000000000003",
+    "fields": {
+      "numero_telephone": "+22961000003",
+      "nom_titulaire": "David Azonhiho (Moov)",
+      "operateur": "MOOV_BEN",
       "solde": "500000.00",
       "est_actif": true,
       "created_at": "2026-01-01T00:00:00Z",
